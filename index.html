@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8">
+<title>Pickleball 3D</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--ink:#fff;--panel:rgba(10,20,30,.7);--accent:#f5c518;box-sizing:border-box}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--panel:rgba(0,0,0,.65)}}
+:root[data-theme="dark"]{--panel:rgba(0,0,0,.65)}
+html,body{margin:0;height:100%;overflow:hidden;background:#12301f;color:var(--ink);font-family:system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:0;right:0;display:flex;justify-content:center;gap:10px;align-items:center;pointer-events:none}
+#hud span,#hud button{background:var(--panel);padding:8px 14px;border-radius:20px;font-weight:700;font-size:15px;color:var(--ink);border:0;pointer-events:auto}
+#msg{position:fixed;top:30%;left:0;right:0;text-align:center;font-size:24px;font-weight:800;text-shadow:0 2px 6px #000;padding:0 16px;pointer-events:none}
+#stick{position:fixed;left:calc(24px + env(safe-area-inset-left,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.5)}
+#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.6);transform:translate(-50%,-50%)}
+#hit{position:fixed;right:calc(24px + env(safe-area-inset-right,0px));bottom:calc(30px + env(safe-area-inset-bottom,0px));width:96px;height:96px;border-radius:50%;border:3px solid #fff;background:rgba(245,197,24,.85);color:#222;font-size:22px;font-weight:800}
+@media (hover:hover) and (pointer:fine){#stick{display:none}}
+#start{position:fixed;inset:0;background:rgba(5,15,10,.82);display:flex;align-items:center;justify-content:center;text-align:center;padding:20px}
+#start div{max-width:420px}#start h1{margin:0 0 10px;font-size:34px}#start p{line-height:1.5;margin:8px 0}
+#go{margin-top:14px;padding:14px 34px;border-radius:30px;border:0;background:var(--accent);color:#222;font-size:20px;font-weight:800}
+</style></head><body>
+<div id="hud"><span id="sc"></span><button id="df"></button><span id="kw" style="display:none;background:#b3261e">⚠ Trong vùng bếp: không được đập bóng bay</span></div>
+<div id="msg"></div>
+<div id="stick"><i id="knob"></i></div>
+<button id="hit">HIT</button>
+<div id="start"><div><h1>🏓 Pickleball 3D</h1>
+<p><b>Máy tính:</b> WASD hoặc mũi tên để chạy, Space để đánh/giao bóng.<br><b>Điện thoại:</b> joystick bên trái, nút HIT bên phải.</p>
+<p>Vừa đánh vừa giữ hướng để chọn nơi bóng rơi. Vòng vàng trên sân là điểm bóng sắp rơi.</p>
+<p>Chơi đến 11 điểm, hơn 2 điểm. Chỉ bên giao bóng được ghi điểm.</p><p><b>Luật hai lần nảy:</b> cú trả giao và cú đánh thứ ba phải chờ bóng nảy rồi mới đánh. <b>Luật bếp:</b> đứng trong vùng bếp (gần lưới) thì không được đánh bóng khi chưa nảy.</p>
+<button id="go">Bắt đầu</button></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const G=9.8,R=.06,NET=.9;
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x8fd0ff);scene.fog=new THREE.Fog(0x8fd0ff,28,65);
+const cam=new THREE.PerspectiveCamera(55,1,.1,100);
+const ren=new THREE.WebGLRenderer({antialias:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));document.body.prepend(ren.domElement);
+function resize(){const w=innerWidth,h=innerHeight;ren.setSize(w,h);cam.aspect=w/h;cam.fov=w/h<1?72:55;cam.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+scene.add(new THREE.HemisphereLight(0xffffff,0x446644,.85));
+const sun=new THREE.DirectionalLight(0xffffff,.6);sun.position.set(5,12,6);scene.add(sun);
+const mat=c=>new THREE.MeshLambertMaterial({color:c});
+function box(w,h,d,c,x,y,z,p){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(c));m.position.set(x,y,z);(p||scene).add(m);return m}
+// Sân
+box(70,.1,70,0x2e7d4f,0,-.06,0);
+box(9.4,.02,17,0x2a5a9e,0,0,0);
+box(6.1,.02,13.41,0x3b7bd0,0,.005,0);
+[-1,1].forEach(s=>{box(6.1,.02,2.13,0x2f68b8,0,.008,s*1.065)});
+const W=0xffffff;
+[-1,1].forEach(s=>{
+  box(6.1,.02,.05,W,0,.01,s*6.705);box(.05,.02,13.41,W,s*3.05,.01,0);
+  box(6.1,.02,.05,W,0,.01,s*2.13);box(.05,.02,4.575,W,0,.01,s*4.42);
+  box(.1,1,.1,0x333333,s*3.3,.5,0);
+});
+const net=box(6.6,NET,.02,0x222222,0,NET/2,0);net.material.transparent=true;net.material.opacity=.55;
+box(6.6,.06,.03,W,0,NET,0);
+[-1,1].forEach(s=>box(.15,1.1,19,0x1d4d33,s*5.2,.55,0));box(10.5,1.1,.15,0x1d4d33,0,.55,-9.5);box(6,.6,.16,0xf5c518,0,.6,-9.45);
+[-9,-5,5,9].forEach(x=>{box(.3,2,.3,0x5a3b1e,x,1,-14);const c=new THREE.Mesh(new THREE.ConeGeometry(1.4,3.5,8),mat(0x2f8f4e));c.position.set(x,3.6,-14);scene.add(c)});
+// Người chơi
+function mkPlayer(shirt,shorts,hair){const g=new THREE.Group(),skin=0xf2c29b,u=g.userData;
+  const sh=new THREE.Mesh(new THREE.CircleGeometry(.4,16),new THREE.MeshBasicMaterial({color:0,transparent:true,opacity:.3}));sh.rotation.x=-Math.PI/2;sh.position.y=.025;g.add(sh);
+  const body=new THREE.Group();g.add(body);u.body=body;
+  const leg=x=>{const l=new THREE.Group();l.position.set(x,.88,0);box(.15,.6,.15,skin,0,-.32,0,l);box(.17,.1,.28,0xffffff,0,-.66,-.04,l);body.add(l);return l};
+  u.legL=leg(-.12);u.legR=leg(.12);
+  box(.5,.3,.3,shorts,0,.92,0,body);box(.5,.62,.3,shirt,0,1.35,0,body);
+  const arm=(x)=>{const a=new THREE.Group();a.position.set(x,1.6,0);box(.12,.55,.12,shirt,0,-.27,0,a);box(.13,.13,.13,skin,0,-.58,0,a);body.add(a);return a};
+  u.armL=arm(-.34);u.arm=arm(.34);
+  const pd=new THREE.Group();pd.position.set(0,-.62,-.08);box(.3,.34,.03,0xffc400,0,-.12,0,pd);box(.04,.14,.04,0x222222,0,.08,0,pd);u.arm.add(pd);
+  const hd=new THREE.Mesh(new THREE.SphereGeometry(.19,14,14),mat(skin));hd.position.y=1.9;body.add(hd);
+  const hr=new THREE.Mesh(new THREE.SphereGeometry(.2,14,8,0,Math.PI*2,0,Math.PI/2),mat(hair));hr.position.y=1.93;hr.rotation.x=-.25;body.add(hr);
+  box(.22,.03,.14,shirt,0,1.97,-.2,body);[-.07,.07].forEach(x=>box(.04,.04,.03,0x111111,x,1.91,-.18,body));
+  g.scale.setScalar(.85);scene.add(g);return g}
+function anim(o,spd,dt){const u=o.g.userData;o.ph=(o.ph||0)+dt*(2+spd*1.6);const k=Math.min(1,spd/2.5),s=Math.sin(o.ph);
+  u.legL.rotation.x=s*.8*k;u.legR.rotation.x=-s*.8*k;u.armL.rotation.x=-s*.6*k;u.body.position.y=Math.abs(s)*.05*k;
+  u.arm.rotation.x=.5+Math.sin((1-o.swing)*Math.PI)*1.4}
+function mv(o,dt){const s=Math.hypot(o.x-(o.px??o.x),o.z-(o.pz??o.z))/Math.max(dt,.001);o.px=o.x;o.pz=o.z;return s}
+const P={x:0,z:7.3,swing:0,g:mkPlayer(0xe8453c,0x2b2b2b,0x3a2a1a)},A={x:0,z:-7.3,swing:0,g:mkPlayer(0x2c6fd6,0xf0f0f0,0xd9b44a)};
+A.g.rotation.y=Math.PI;
+// Bóng
+const ballM=new THREE.Mesh(new THREE.SphereGeometry(R,16,16),new THREE.MeshLambertMaterial({color:0xe9ff3a}));scene.add(ballM);
+const shadow=new THREE.Mesh(new THREE.CircleGeometry(.12,16),new THREE.MeshBasicMaterial({color:0,transparent:true,opacity:.35}));
+shadow.rotation.x=-Math.PI/2;scene.add(shadow);
+const ring=new THREE.Mesh(new THREE.RingGeometry(.28,.36,24),new THREE.MeshBasicMaterial({color:0xffdd00,transparent:true,opacity:.9}));
+ring.rotation.x=-Math.PI/2;ring.visible=false;scene.add(ring);
+const ball={p:new THREE.Vector3(),v:new THREE.Vector3()};
+// Âm thanh (tổng hợp bằng WebAudio, không cần file)
+let AC=null;function audio(){try{if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume()}catch(e){}}
+function tone(f,d,ty,vol,f2){try{if(!AC)return;const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(t+d)}catch(e){}}
+const SND={hit:()=>{tone(1100,.06,'square',.14,600);tone(300,.05,'sine',.2,150)},bounce:()=>tone(240,.08,'sine',.22,110),net:()=>tone(160,.14,'triangle',.22,90),win:()=>{tone(600,.14,'sine',.2);setTimeout(()=>tone(900,.22,'sine',.2),120)},lose:()=>tone(220,.3,'sawtooth',.1,100)};
+// Hiệu ứng hạt
+const PG=new THREE.SphereGeometry(.04,6,6),PM=[0xffffff,0xffe14d,0xd8c7a0].map(c=>new THREE.MeshBasicMaterial({color:c})),parts=[];
+for(let i=0;i<90;i++){const m=new THREE.Mesh(PG,PM[0]);m.visible=false;scene.add(m);parts.push({m,v:new THREE.Vector3(),l:0,t:1})}
+let pi=0;function burst(p,n,mi,sp){for(let i=0;i<n;i++){const q=parts[pi++%parts.length];q.m.material=PM[mi];q.m.position.copy(p);q.v.set((Math.random()-.5)*sp,Math.random()*sp*.8,(Math.random()-.5)*sp);q.l=q.t=.45;q.m.visible=true}}
+function updParts(dt){for(const q of parts)if(q.l>0){q.l-=dt;q.v.y-=6*dt;q.m.position.addScaledVector(q.v,dt);q.m.scale.setScalar(Math.max(q.l/q.t,.01));if(q.l<=0)q.m.visible=false}}
+let ft;function flash(t){msg(t);clearTimeout(ft);ft=setTimeout(()=>{if(state==='play')msg('')},1500)}
+// Trạng thái
+let state='menu',server='p',last='p',bounces=0,serveFlag=false,timer=0,diff=1,hitBuf=0,hitN=0;
+const score={p:0,a:0},inp={x:0,y:0},keys={},DN=['Dễ','Vừa','Khó'];
+const other=s=>s==='p'?'a':'p';
+function hud(){$('sc').textContent=`BẠN ${score.p} : ${score.a} MÁY · Giao: ${server==='p'?'Bạn':'Máy'}`;$('df').textContent='Độ khó: '+DN[diff]}
+function msg(t){$('msg').textContent=t}
+function newGame(){score.p=score.a=0;server='p';resetServe()}
+function resetServe(){state='serve';timer=1.4;bounces=0;serveFlag=false;last=server;ball.v.set(0,0,0);
+  if(server==='p'){P.x=1.5;P.z=7.3;A.x=-1.5;A.z=-6.2}else{A.x=-1.5;A.z=-7.3;P.x=1.5;P.z=6.2}
+  hud();msg(server==='p'?'Bấm HIT / Space để giao bóng':'Máy chuẩn bị giao bóng…')}
+function launch(tx,tz,T){const p=ball.p,v=ball.v;
+  v.x=(tx-p.x)/T;v.z=(tz-p.z)/T;v.y=(R-p.y)/T+.5*G*T;
+  const t=-p.z/v.z;if(t>0&&t<T){const yy=p.y+v.y*t-.5*G*t*t;if(yy<1.25)v.y+=(1.25-yy)/t}}
+function doServe(tx,tz){launch(tx,tz,1.15);last=server;bounces=0;serveFlag=true;hitN=1;state='play';msg('');SND.hit();burst(ball.p,10,1,3)}
+function shotP(q){const sp=.25+q*1.1;
+  const tx=clamp(inp.x*2.4+(Math.random()-.5)*sp*2,-3.4,3.4);
+  const tz=-(4.4-inp.y*1.4+(Math.random()-.5)*sp*1.6);
+  launch(tx,tz,.85+Math.abs(tz)*.06);last='p';bounces=0;serveFlag=false;hitN++;SND.hit();burst(ball.p,10,1,3)}
+function shotA(){const e=[1.5,.9,.45][diff];
+  let tx=(Math.random()-.5)*4.6+(diff===2?(P.x>0?-1:1):0)+(Math.random()-.5)*e;
+  const tz=4+Math.random()*1.6+(Math.random()-.5)*e;
+  launch(clamp(tx,-3.5,3.5),tz,.85+tz*.06);last='a';bounces=0;serveFlag=false;A.swing=1;hitN++;SND.hit();burst(ball.p,10,1,3)}
+function endPoint(w,why){if(state!=='play')return;(w==='p'?SND.win:SND.lose)();burst(ball.p,w==='p'?24:8,w==='p'?1:0,5);
+  let t=why+' — ';
+  if(w===server){score[w]++;t+=w==='p'?'Bạn ghi điểm!':'Máy ghi điểm!'}else{server=w;t+='Đổi giao bóng'}
+  hud();
+  if((score.p>=11||score.a>=11)&&Math.abs(score.p-score.a)>=2){state='over';msg((score.p>score.a?'🎉 Bạn thắng! ':'Máy thắng. ')+score.p+'-'+score.a+' · Bấm HIT để chơi lại');return}
+  state='point';timer=1.9;msg(t)}
+function onBounce(){if(state!=='play')return;const b=ball.p;
+  if(Math.abs(b.x)>3.1||Math.abs(b.z)>6.76)return endPoint(other(last),'Bóng ra ngoài');
+  const s=b.z>0?'p':'a';
+  if(s===last)return endPoint(other(last),last==='p'?'Bóng rơi sân bạn/dính lưới':'Máy đánh hỏng');
+  if(serveFlag&&Math.abs(b.z)<2.13)return endPoint(other(last),'Giao bóng vào vùng bếp');
+  serveFlag=false;bounces++;
+  if(bounces>=2)endPoint(last,s==='p'?'Bạn không đỡ được':'Máy không đỡ được')}
+function stepBall(dt){const b=ball.p,v=ball.v,pz=b.z;
+  v.y-=G*dt;b.addScaledVector(v,dt);
+  if(pz*b.z<0&&b.y<NET){b.z=pz>0?.04:-.04;v.z*=-.2;v.x*=.5;if(state==='play'){SND.net();burst(b,6,0,2)}}
+  if(b.y<R&&v.y<0){const hv=-v.y;b.y=R;v.y=hv<.4?0:hv*.72;v.x*=.92;v.z*=.92;if(hv>.8){SND.bounce();burst(b,4,2,1.2)}onBounce()}
+  if(state!=='play'){v.x*=.995;v.z*=.995}}
+function landing(){const b=ball.p,v=ball.v;const t=(v.y+Math.sqrt(Math.max(v.y*v.y+2*G*(b.y-R),0)))/G;return{x:b.x+v.x*t,z:b.z+v.z*t}}
+function pressHit(){if(state==='over')return newGame();hitBuf=.25;P.swing=1}
+// Điều khiển
+addEventListener('keydown',e=>{keys[e.code]=1;if(e.code==='Space'){e.preventDefault();if(!e.repeat)pressHit()}});
+addEventListener('keyup',e=>keys[e.code]=0);
+$('hit').addEventListener('pointerdown',e=>{e.preventDefault();pressHit()});
+$('df').addEventListener('click',()=>{diff=(diff+1)%3;hud()});
+$('go').addEventListener('click',()=>{$('start').style.display='none';audio();newGame()});
+const stick=$('stick'),knob=$('knob');let joy=null,jid=-1;
+function joyMove(e){const r=stick.getBoundingClientRect();let dx=(e.clientX-r.left-r.width/2)/(r.width/2),dy=(e.clientY-r.top-r.height/2)/(r.height/2);
+  const m=Math.hypot(dx,dy);if(m>1){dx/=m;dy/=m}joy={x:dx,y:dy};knob.style.transform=`translate(calc(-50% + ${dx*38}px),calc(-50% + ${dy*38}px))`}
+stick.addEventListener('pointerdown',e=>{jid=e.pointerId;stick.setPointerCapture(jid);joyMove(e)});
+stick.addEventListener('pointermove',e=>{if(e.pointerId===jid)joyMove(e)});
+const joyEnd=e=>{if(e.pointerId===jid){jid=-1;joy=null;knob.style.transform='translate(-50%,-50%)'}};
+stick.addEventListener('pointerup',joyEnd);stick.addEventListener('pointercancel',joyEnd);
+// Cập nhật
+function update(dt){
+  let ix=(keys.ArrowRight||keys.KeyD?1:0)-(keys.ArrowLeft||keys.KeyA?1:0),iy=(keys.ArrowDown||keys.KeyS?1:0)-(keys.ArrowUp||keys.KeyW?1:0);
+  if(joy&&Math.hypot(joy.x,joy.y)>.15){ix=joy.x;iy=joy.y}
+  const m=Math.hypot(ix,iy);if(m>1){ix/=m;iy/=m}inp.x=ix;inp.y=iy;
+  hitBuf=Math.max(0,hitBuf-dt);
+  if(state!=='menu'){
+    const minZ=state==='serve'&&server==='p'?6.9:.9;
+    P.x=clamp(P.x+ix*5*dt,-3.9,3.9);P.z=clamp(P.z+iy*5*dt,minZ,8.8);
+    if(state==='serve'){
+      const S=server==='p'?P:A;ball.p.set(S.x+.3,.95,S.z+(server==='p'?-.35:.35));
+      if(server==='p'){if(hitBuf>0){hitBuf=0;doServe(-Math.sign(P.x||1)*1.5+ix*.8+(Math.random()-.5)*.6,-(4.2+Math.random()*1.4))}}
+      else{timer-=dt;if(timer<=0){A.swing=1;doServe(-Math.sign(A.x)*1.5+(Math.random()-.5)*[1.2,.7,.4][diff],4.2+Math.random()*1.2)}}
+    }
+    if(state==='play'){
+      // AI
+      let tx=0,tz=-5.5;
+      if(last==='p'){if(bounces===0){const l=landing();tx=l.x;tz=l.z}else{tx=ball.p.x;tz=ball.p.z}}
+      tx=clamp(tx,-3.7,3.7);tz=clamp(tz,-7.8,-1);
+      const dx=tx-A.x,dz=tz-A.z,d=Math.hypot(dx,dz),sp=[3.2,4.4,5.8][diff]*dt;
+      if(d>.02){const k=Math.min(1,sp/d);A.x+=dx*k;A.z+=dz*k}
+      const b=ball.p;
+      if(last!=='a'&&b.z<.1&&b.y<2.2&&Math.hypot(b.x-A.x,b.z-A.z)<1.5&&(bounces>=1||(hitN>=3&&diff===2&&A.z<-2.3)))shotA();
+      // Người chơi
+      if(hitBuf>0&&last!=='p'&&b.z>-.1){const dd=Math.hypot(b.x-P.x,b.z-P.z);
+        if(dd<1.8&&b.y<2.4){hitBuf=0;
+          if(bounces===0&&hitN<3)flash('Luật hai lần nảy: chờ bóng nảy rồi mới đánh!');
+          else if(bounces===0&&P.z<2.13)endPoint('a','Lỗi vùng bếp: đập bóng bay khi đứng trong kitchen');
+          else shotP(dd/1.8)}}
+    }
+    if(state==='point'){timer-=dt;if(timer<=0)resetServe()}
+    if(state!=='serve'){stepBall(dt/2);stepBall(dt/2)}
+  }
+  // Hiển thị
+  P.g.position.set(P.x,0,P.z);A.g.position.set(A.x,0,A.z);
+  P.swing=Math.max(0,P.swing-dt*4);A.swing=Math.max(0,A.swing-dt*4);
+  anim(P,mv(P,dt),dt);anim(A,mv(A,dt),dt);
+  if(state==='play'&&ball.v.length()>5)burst(ball.p,1,1,0);updParts(dt);
+  $('kw').style.display=(state==='play'&&P.z<2.13)?'inline-block':'none';
+  const b=ball.p;ballM.position.copy(b);
+  const sc=Math.max(.5,1.2-b.y*.15);shadow.position.set(b.x,.025,b.z);shadow.scale.set(sc,sc,sc);
+  ring.visible=state==='play'&&last==='a'&&bounces===0&&b.y>R+.05;
+  if(ring.visible){const l=landing();ring.position.set(l.x,.03,l.z)}
+  const port=innerWidth<innerHeight;
+  cam.position.lerp(new THREE.Vector3(P.x*.35,port?5.2:3.6,port?13.8:10.8),.08);
+  cam.lookAt(P.x*.2,.5,-2.5);
+}
+let lt=performance.now();
+function loop(t){requestAnimationFrame(loop);const dt=Math.min((t-lt)/1000,.05);lt=t;update(dt);ren.render(scene,cam)}
+hud();ball.p.set(0,1,7);requestAnimationFrame(loop);
+</script></body></html>
