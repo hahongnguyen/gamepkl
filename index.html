@@ -122,6 +122,7 @@ function endPoint(w,why){if(state!=='play')return;(w==='p'?SND.win:SND.lose)();b
   if((score.p>=11||score.a>=11)&&Math.abs(score.p-score.a)>=2){state='over';msg((score.p>score.a?'🎉 Bạn thắng! ':'Máy thắng. ')+score.p+'-'+score.a+' · Bấm HIT để chơi lại');return}
   state='point';timer=1.9;msg(t)}
 function onBounce(){if(state!=='play')return;const b=ball.p;
+  if(bounces>=1)return endPoint(last,last==='a'?'Bạn không đỡ được':'Máy không đỡ được');
   if(Math.abs(b.x)>3.1||Math.abs(b.z)>6.76)return endPoint(other(last),'Bóng ra ngoài');
   const s=b.z>0?'p':'a';
   if(s===last)return endPoint(other(last),last==='p'?'Bóng rơi sân bạn/dính lưới':'Máy đánh hỏng');
